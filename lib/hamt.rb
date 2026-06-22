@@ -20,6 +20,15 @@ class HAMT
   NOT_FOUND = Object.new
   private_constant :NOT_FOUND
 
+  def self.popcount(int)
+    n = 0
+    while int != 0
+      int &= int - 1
+      n += 1
+    end
+    n
+  end
+
   # A bucket of key/value pairs sharing one full hash. Almost always holds a
   # single pair; only true hash collisions make it longer.
   Leaf = Struct.new(:hash, :pairs) do
@@ -87,8 +96,9 @@ class HAMT
 
     def each(&block) = slots.each { |child| child.each(&block) }
 
-    # Dense position of `bit` within the packed slots: count the set bits below it.
-    private def index(bit) = (bitmap & (bit - 1)).to_s(2).count("1")
+    # Dense position of `bit` within the packed slots: how many filled slots
+    # sit below it.
+    private def index(bit) = HAMT.popcount(bitmap & (bit - 1))
     private def insert(a, i, x)  = a.dup.insert(i, x).freeze
     private def replace(a, i, x) = a.dup.tap { |b| b[i] = x }.freeze
     private def remove(a, i)     = a.dup.tap { |b| b.delete_at(i) }.freeze
