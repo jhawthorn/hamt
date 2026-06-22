@@ -30,6 +30,8 @@ class HAMT
 
     def put(key, hash, shift, value)
       return split(shift).put(key, hash, shift, value) unless hash == self.hash
+      existing = pairs.find { |k, _| k.eql?(key) }
+      return self if existing && existing[1].equal?(value) # unchanged: share
       kept = pairs.reject { |k, _| k.eql?(key) }
       Leaf.new(hash, (kept << [key, value]).freeze)
     end
@@ -63,7 +65,8 @@ class HAMT
       if (bitmap & bit).zero?
         Node.new(bitmap | bit, insert(slots, i, Leaf.new(hash, [[key, value]].freeze)))
       else
-        Node.new(bitmap, replace(slots, i, slots[i].put(key, hash, shift + BITS, value)))
+        child = slots[i].put(key, hash, shift + BITS, value)
+        child.equal?(slots[i]) ? self : Node.new(bitmap, replace(slots, i, child))
       end
     end
 
@@ -133,6 +136,7 @@ class HAMT
   def set(key, value)
     hash = key.hash
     root = @root ? @root.put(key, hash, 0, value) : Leaf.new(hash, [[key, value]].freeze)
+    return self if root.equal?(@root)
     HAMT.new(root, key?(key) ? @count : @count + 1)
   end
   alias store set
