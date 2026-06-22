@@ -37,10 +37,11 @@ class HAMT
       pair ? pair[1] : default
     end
 
-    def put(key, hash, shift, value)
-      return split(shift).put(key, hash, shift, value) unless hash == self.hash
+    def put(key, hash, shift, value, result)
+      return split(shift).put(key, hash, shift, value, result) unless hash == self.hash
       existing = pairs.find { |k, _| k.eql?(key) }
-      return self if existing && existing[1].equal?(value) # unchanged: share
+      return self if existing && existing[1].equal?(value)
+      result.count += 1 unless existing
       kept = pairs.reject { |k, _| k.eql?(key) }
       Leaf.new(hash, (kept << [key, value]).freeze)
     end
@@ -68,13 +69,14 @@ class HAMT
       slots[index(bit)].get(key, hash, shift + BITS, default)
     end
 
-    def put(key, hash, shift, value)
+    def put(key, hash, shift, value, result)
       bit = 1 << ((hash >> shift) & MASK)
       i = index(bit)
       if (bitmap & bit).zero?
+        result.count += 1
         Node.new(bitmap | bit, insert(slots, i, Leaf.new(hash, [[key, value]].freeze)))
       else
-        child = slots[i].put(key, hash, shift + BITS, value)
+        child = slots[i].put(key, hash, shift + BITS, value, result)
         child.equal?(slots[i]) ? self : Node.new(bitmap, replace(slots, i, child))
       end
     end
@@ -118,7 +120,7 @@ class HAMT
     freeze
   end
 
-  attr_reader :count
+  attr_accessor :root, :count
   alias size count
   alias length count
   def empty? = @count.zero?
@@ -145,9 +147,15 @@ class HAMT
 
   def set(key, value)
     hash = key.hash
-    root = @root ? @root.put(key, hash, 0, value) : Leaf.new(hash, [[key, value]].freeze)
+    return HAMT.new(Leaf.new(hash, [[key, value]].freeze), 1) if @root.nil?
+
+    result = HAMT.allocate
+    result.count = @count
+    root = @root.put(key, hash, 0, value, result)
     return self if root.equal?(@root)
-    HAMT.new(root, key?(key) ? @count : @count + 1)
+    result.root = root
+    result.freeze
+    result
   end
   alias store set
   alias put set
