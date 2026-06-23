@@ -31,7 +31,15 @@ class HAMT
 
   # A bucket of key/value pairs sharing one full hash. Almost always holds a
   # single pair; only true hash collisions make it longer.
-  Leaf = Struct.new(:hash, :pairs) do
+  class Leaf
+    attr_reader :hash, :pairs
+
+    def initialize(hash, pairs)
+      @hash = hash
+      @pairs = pairs
+      freeze
+    end
+
     def get(key, _hash, _shift, default)
       pair = pairs.find { |k, _| k.eql?(key) }
       pair ? pair[1] : default
@@ -62,7 +70,15 @@ class HAMT
 
   # A sparse branch. `bitmap` marks which of the 32 slots are filled; `slots`
   # holds just those children (each a Leaf or a Node), packed densely.
-  Node = Struct.new(:bitmap, :slots) do
+  class Node
+    attr_reader :bitmap, :slots
+
+    def initialize(bitmap, slots)
+      @bitmap = bitmap
+      @slots = slots
+      freeze
+    end
+
     def get(key, hash, shift, default)
       bit = 1 << ((hash >> shift) & MASK)
       return default if (bitmap & bit).zero?
