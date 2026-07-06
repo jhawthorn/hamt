@@ -279,7 +279,17 @@ class HAMT
     self
   end
 
-  def merge(other) = other.reduce(self) { |h, (k, v)| h.set(k, v) }
+  def merge(*others)
+    others.reduce(self) do |acc, other|
+      other.reduce(acc) do |h, (k, v)|
+        if block_given? && !(old = h.get(k, NOT_FOUND)).equal?(NOT_FOUND)
+          h.set(k, yield(k, old, v))
+        else
+          h.set(k, v)
+        end
+      end
+    end
+  end
   def keys = map { |k, _| k }
   def values = map { |_, v| v }
   def to_h = each_with_object({}) { |(k, v), h| h[k] = v }
