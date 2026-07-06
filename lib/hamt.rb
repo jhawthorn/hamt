@@ -124,10 +124,29 @@ class HAMT
     end
 
     private def index(bit) = HAMT.popcount(bitmap & (bit - 1))
-    private def insert2(a, i, x, y) = a.dup.insert(i, x, y).freeze
-    private def store1(a, i, x)     = a.dup.tap { |b| b[i] = x }.freeze
-    private def store2(a, i, x, y)  = a.dup.tap { |b| b[i] = x; b[i + 1] = y }.freeze
-    private def remove2(a, i)       = a.dup.tap { |b| b.slice!(i, 2) }.freeze
+
+    # [*a] beats Array#dup here: dup pays for rb_obj_dup_setup, splat is a
+    # raw copy (see bench/array_copy.rb).
+    private def insert2(a, i, x, y) = [*a].insert(i, x, y).freeze
+
+    private def store1(a, i, x)
+      b = [*a]
+      b[i] = x
+      b.freeze
+    end
+
+    private def store2(a, i, x, y)
+      b = [*a]
+      b[i] = x
+      b[i + 1] = y
+      b.freeze
+    end
+
+    private def remove2(a, i)
+      b = [*a]
+      b.slice!(i, 2)
+      b.freeze
+    end
   end
   private_constant :Node
 
@@ -158,12 +177,14 @@ class HAMT
       while i < n
         if array[i].eql?(key)
           return self if array[i + 1].equal?(value)
-          return Collision.new(hash, array.dup.tap { |b| b[i + 1] = value }.freeze)
+          b = [*array]
+          b[i + 1] = value
+          return Collision.new(hash, b.freeze)
         end
         i += 2
       end
       result.count += 1
-      Collision.new(hash, (array.dup << key << value).freeze)
+      Collision.new(hash, ([*array] << key << value).freeze)
     end
 
     def delete(key, _hash, _shift)
@@ -172,7 +193,9 @@ class HAMT
       while i < n
         if array[i].eql?(key)
           return nil if n == 2
-          return Collision.new(hash, array.dup.tap { |b| b.slice!(i, 2) }.freeze)
+          b = [*array]
+          b.slice!(i, 2)
+          return Collision.new(hash, b.freeze)
         end
         i += 2
       end
