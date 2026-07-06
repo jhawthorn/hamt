@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "hamt/version"
+
 # A persistent (immutable) Hash Array Mapped Trie.
 #
 # `set` and `delete` return a new HAMT that shares structure with the old one;
