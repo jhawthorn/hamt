@@ -74,6 +74,32 @@ class TestHAMT < Minitest::Test
     assert_raises(KeyError) { h.fetch(:x) }
   end
 
+  # fetch must accept 1..2 args like Hash#fetch, not any arity.
+  def test_fetch_rejects_extra_args
+    h = HAMT.new.set(:a, 1)
+    assert_equal(-2, h.method(:fetch).arity) # one required, one optional
+    assert_raises(ArgumentError) { h.fetch(:x, :d, :e) }
+  end
+
+  def test_fetch_default_can_be_nil
+    assert_nil HAMT.new.fetch(:x, nil)
+  end
+
+  def test_fetch_missing_value_that_is_falsey
+    h = HAMT.new.set(:a, false).set(:b, nil)
+    assert_equal false, h.fetch(:a)
+    assert_nil h.fetch(:b)
+  end
+
+  # [] takes exactly one argument like Hash#[], unlike get(key, default).
+  def test_bracket_takes_one_argument
+    h = HAMT.new.set(:a, 1)
+    assert_equal 1, h[:a]
+    assert_nil h[:missing]
+    assert_equal 1, h.method(:[]).arity
+    assert_raises(ArgumentError) { h.send(:[], :a, :b) }
+  end
+
   def test_each_and_enumerable
     pairs = { a: 1, b: 2, c: 3 }
     h = HAMT[pairs]

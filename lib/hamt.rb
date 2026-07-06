@@ -235,7 +235,10 @@ class HAMT
   def get(key, default = nil)
     @root ? @root.get(key, key.hash, 0, default) : default
   end
-  alias [] get
+
+  def [](key)
+    @root ? @root.get(key, key.hash, 0, nil) : nil
+  end
 
   def key?(key)
     return false unless @root
@@ -244,11 +247,11 @@ class HAMT
   alias has_key? key?
   alias include? key?
 
-  def fetch(key, *default)
+  def fetch(key, default = NOT_FOUND)
     value = @root ? @root.get(key, key.hash, 0, NOT_FOUND) : NOT_FOUND
-    return value unless value.equal?(NOT_FOUND)
+    return value unless NOT_FOUND.equal?(value)
     return yield(key) if block_given?
-    return default.first unless default.empty?
+    return default unless NOT_FOUND.equal?(default)
     raise KeyError, "key not found: #{key.inspect}"
   end
 
