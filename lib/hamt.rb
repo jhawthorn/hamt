@@ -20,6 +20,10 @@ class HAMT
   NOT_FOUND = Object.new
   private_constant :NOT_FOUND
 
+  # In a key slot: the value slot holds a sub-node, not a value.
+  SUBNODE = Object.new
+  private_constant :SUBNODE
+
   def self.popcount(int)
     n = 0
     while int != 0
@@ -29,103 +33,165 @@ class HAMT
     n
   end
 
-  # A bucket of key/value pairs sharing one full hash. Almost always holds a
-  # single pair; only true hash collisions make it longer.
-  class Leaf
-    attr_reader :hash, :pairs
-
-    def initialize(hash, pairs)
-      @hash = hash
-      @pairs = pairs
-      freeze
-    end
-
-    def get(key, _hash, _shift, default)
-      pair = pairs.find { |k, _| k.eql?(key) }
-      pair ? pair[1] : default
-    end
-
-    def put(key, hash, shift, value, result)
-      return split(shift).put(key, hash, shift, value, result) unless hash == self.hash
-      existing = pairs.find { |k, _| k.eql?(key) }
-      return self if existing && existing[1].equal?(value)
-      result.count += 1 unless existing
-      kept = pairs.reject { |k, _| k.eql?(key) }
-      Leaf.new(hash, (kept << [key, value]).freeze)
-    end
-
-    def delete(key, _hash, _shift)
-      kept = pairs.reject { |k, _| k.eql?(key) }
-      return self if kept.size == pairs.size # key wasn't here
-      kept.empty? ? nil : Leaf.new(hash, kept.freeze)
-    end
-
-    def each(&block) = pairs.each(&block)
-
-    # Wrap this leaf in a one-entry branch at the given level, so a key with a
-    # different hash can be inserted alongside it.
-    private def split(shift) = Node.new(1 << ((hash >> shift) & MASK), [self].freeze)
-  end
-  private_constant :Leaf
-
-  # A sparse branch. `bitmap` marks which of the 32 slots are filled; `slots`
-  # holds just those children (each a Leaf or a Node), packed densely.
+  # array packs two cells per filled slot: [key, value] or [SUBNODE, child].
   class Node
-    attr_reader :bitmap, :slots
+    attr_reader :bitmap, :array
 
-    def initialize(bitmap, slots)
+    def initialize(bitmap, array)
       @bitmap = bitmap
-      @slots = slots
+      @array = array
       freeze
     end
 
     def get(key, hash, shift, default)
       bit = 1 << ((hash >> shift) & MASK)
       return default if (bitmap & bit).zero?
-      slots[index(bit)].get(key, hash, shift + BITS, default)
+      i = 2 * index(bit)
+      k = array[i]
+      if k.equal?(SUBNODE)
+        array[i + 1].get(key, hash, shift + BITS, default)
+      elsif k.eql?(key)
+        array[i + 1]
+      else
+        default
+      end
     end
 
     def put(key, hash, shift, value, result)
       bit = 1 << ((hash >> shift) & MASK)
-      i = index(bit)
+      i = 2 * index(bit)
       if (bitmap & bit).zero?
         result.count += 1
-        Node.new(bitmap | bit, insert(slots, i, Leaf.new(hash, [[key, value]].freeze)))
+        Node.new(bitmap | bit, insert2(array, i, key, value))
+      elsif (k = array[i]).equal?(SUBNODE)
+        child = array[i + 1]
+        new_child = child.put(key, hash, shift + BITS, value, result)
+        new_child.equal?(child) ? self : Node.new(bitmap, store1(array, i + 1, new_child))
+      elsif k.eql?(key)
+        return self if array[i + 1].equal?(value)
+        Node.new(bitmap, store1(array, i + 1, value))
       else
-        child = slots[i].put(key, hash, shift + BITS, value, result)
-        child.equal?(slots[i]) ? self : Node.new(bitmap, replace(slots, i, child))
+        # different key, same slot: push the existing pair down a level
+        ev = array[i + 1]
+        ehash = k.hash
+        child =
+          if ehash == hash
+            result.count += 1
+            Collision.new(hash, [k, ev, key, value].freeze)
+          else
+            sub = Node.new(1 << ((ehash >> (shift + BITS)) & MASK), [k, ev].freeze)
+            sub.put(key, hash, shift + BITS, value, result)
+          end
+        Node.new(bitmap, store2(array, i, SUBNODE, child))
       end
     end
 
     def delete(key, hash, shift)
       bit = 1 << ((hash >> shift) & MASK)
       return self if (bitmap & bit).zero?
-      i = index(bit)
-      child = slots[i].delete(key, hash, shift + BITS)
-      return self if child.equal?(slots[i])
-
-      if child.nil?
+      i = 2 * index(bit)
+      k = array[i]
+      if k.equal?(SUBNODE)
+        child = array[i + 1]
+        new_child = child.delete(key, hash, shift + BITS)
+        return self if new_child.equal?(child)
+        if new_child.nil?
+          rest = bitmap & ~bit
+          rest.zero? ? nil : Node.new(rest, remove2(array, i))
+        else
+          Node.new(bitmap, store1(array, i + 1, new_child))
+        end
+      elsif k.eql?(key)
         rest = bitmap & ~bit
-        rest.zero? ? nil : Node.new(rest, remove(slots, i))
+        rest.zero? ? nil : Node.new(rest, remove2(array, i))
       else
-        Node.new(bitmap, replace(slots, i, child))
+        self
       end
     end
 
-    def each(&block) = slots.each { |child| child.each(&block) }
+    def each(&block)
+      i = 0
+      n = array.size
+      while i < n
+        k = array[i]
+        if k.equal?(SUBNODE)
+          array[i + 1].each(&block)
+        else
+          block.call([k, array[i + 1]])
+        end
+        i += 2
+      end
+    end
 
-    # Dense position of `bit` within the packed slots: how many filled slots
-    # sit below it.
     private def index(bit) = HAMT.popcount(bitmap & (bit - 1))
-    private def insert(a, i, x)  = a.dup.insert(i, x).freeze
-    private def replace(a, i, x) = a.dup.tap { |b| b[i] = x }.freeze
-    private def remove(a, i)     = a.dup.tap { |b| b.delete_at(i) }.freeze
+    private def insert2(a, i, x, y) = a.dup.insert(i, x, y).freeze
+    private def store1(a, i, x)     = a.dup.tap { |b| b[i] = x }.freeze
+    private def store2(a, i, x, y)  = a.dup.tap { |b| b[i] = x; b[i + 1] = y }.freeze
+    private def remove2(a, i)       = a.dup.tap { |b| b.slice!(i, 2) }.freeze
   end
   private_constant :Node
 
-  # ---- public API --------------------------------------------------------
+  # Flat [k, v, k, v, ...] bucket for keys with a fully-equal hash.
+  class Collision
+    attr_reader :hash, :array
 
-  # HAMT.new is empty; HAMT[a: 1, b: 2] (or HAMT[pairs]) seeds from an enumerable.
+    def initialize(hash, array)
+      @hash = hash
+      @array = array
+      freeze
+    end
+
+    def get(key, _hash, _shift, default)
+      i = 0
+      n = array.size
+      while i < n
+        return array[i + 1] if array[i].eql?(key)
+        i += 2
+      end
+      default
+    end
+
+    def put(key, hash, shift, value, result)
+      return split(shift).put(key, hash, shift, value, result) unless hash == self.hash
+      i = 0
+      n = array.size
+      while i < n
+        if array[i].eql?(key)
+          return self if array[i + 1].equal?(value)
+          return Collision.new(hash, array.dup.tap { |b| b[i + 1] = value }.freeze)
+        end
+        i += 2
+      end
+      result.count += 1
+      Collision.new(hash, (array.dup << key << value).freeze)
+    end
+
+    def delete(key, _hash, _shift)
+      i = 0
+      n = array.size
+      while i < n
+        if array[i].eql?(key)
+          return nil if n == 2
+          return Collision.new(hash, array.dup.tap { |b| b.slice!(i, 2) }.freeze)
+        end
+        i += 2
+      end
+      self
+    end
+
+    def each
+      i = 0
+      n = array.size
+      while i < n
+        yield [array[i], array[i + 1]]
+        i += 2
+      end
+    end
+
+    private def split(shift) = Node.new(1 << ((hash >> shift) & MASK), [SUBNODE, self].freeze)
+  end
+  private_constant :Collision
+
   def self.[](enum = [])
     enum.reduce(new) { |h, (k, v)| h.set(k, v) }
   end
@@ -163,7 +229,7 @@ class HAMT
 
   def set(key, value)
     hash = key.hash
-    return HAMT.new(Leaf.new(hash, [[key, value]].freeze), 1) if @root.nil?
+    return HAMT.new(Node.new(1 << (hash & MASK), [key, value].freeze), 1) if @root.nil?
 
     result = HAMT.allocate
     result.count = @count
