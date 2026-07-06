@@ -23,7 +23,7 @@ class HAMT
   private_constant :NOT_FOUND
 
   # In a key slot: the value slot holds a sub-node, not a value.
-  SUBNODE = Object.new
+  SUBNODE = Object.new.freeze
   private_constant :SUBNODE
 
   def self.popcount(int)
