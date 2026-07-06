@@ -9,7 +9,7 @@ class TestHAMT < Minitest::Test
     assert_equal 0, h.size
     assert h.empty?
     assert_nil h[:missing]
-    assert_equal :default, h.get(:missing, :default)
+    assert_equal :default, h.fetch(:missing, :default)
     refute h.key?(:missing)
   end
 

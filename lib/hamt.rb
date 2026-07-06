@@ -217,11 +217,14 @@ class HAMT
   end
   private_constant :Collision
 
+  EMPTY_ROOT = Node.new(0, [].freeze)
+  private_constant :EMPTY_ROOT
+
   def self.[](enum = [])
     enum.reduce(new) { |h, (k, v)| h.set(k, v) }
   end
 
-  def initialize(root = nil, count = 0)
+  def initialize(root = EMPTY_ROOT, count = 0)
     @root = root
     @count = count
     freeze
@@ -232,23 +235,18 @@ class HAMT
   alias length count
   def empty? = @count.zero?
 
-  def get(key, default = nil)
-    @root ? @root.get(key, key.hash, 0, default) : default
-  end
-
   def [](key)
-    @root ? @root.get(key, key.hash, 0, nil) : nil
+    @root.get(key, key.hash, 0, nil)
   end
 
   def key?(key)
-    return false unless @root
-    !@root.get(key, key.hash, 0, NOT_FOUND).equal?(NOT_FOUND)
+    !NOT_FOUND.equal?(@root.get(key, key.hash, 0, NOT_FOUND))
   end
   alias has_key? key?
   alias include? key?
 
   def fetch(key, default = NOT_FOUND)
-    value = @root ? @root.get(key, key.hash, 0, NOT_FOUND) : NOT_FOUND
+    value = @root.get(key, key.hash, 0, NOT_FOUND)
     return value unless NOT_FOUND.equal?(value)
     return yield(key) if block_given?
     return default unless NOT_FOUND.equal?(default)
@@ -256,12 +254,9 @@ class HAMT
   end
 
   def set(key, value)
-    hash = key.hash
-    return HAMT.new(Node.new(1 << (hash & MASK), [key, value].freeze), 1) if @root.nil?
-
     result = HAMT.allocate
     result.count = @count
-    root = @root.put(key, hash, 0, value, result)
+    root = @root.put(key, key.hash, 0, value, result)
     return self if root.equal?(@root)
     result.root = root
     result.freeze
@@ -271,21 +266,21 @@ class HAMT
   alias put set
 
   def delete(key)
-    return self unless @root
     root = @root.delete(key, key.hash, 0)
-    root.equal?(@root) ? self : HAMT.new(root, @count - 1)
+    return self if root.equal?(@root)
+    HAMT.new(root || EMPTY_ROOT, @count - 1)
   end
 
   def each(&block)
     return enum_for(:each) { @count } unless block_given?
-    @root&.each(&block)
+    @root.each(&block)
     self
   end
 
   def merge(*others)
     others.reduce(self) do |acc, other|
       other.reduce(acc) do |h, (k, v)|
-        if block_given? && !(old = h.get(k, NOT_FOUND)).equal?(NOT_FOUND)
+        if block_given? && !NOT_FOUND.equal?(old = h.root.get(k, k.hash, 0, NOT_FOUND))
           h.set(k, yield(k, old, v))
         else
           h.set(k, v)
@@ -299,7 +294,7 @@ class HAMT
 
   def ==(other)
     other.is_a?(HAMT) && other.count == @count &&
-      all? { |k, v| other.get(k, NOT_FOUND) == v }
+      all? { |k, v| other.root.get(k, k.hash, 0, NOT_FOUND) == v }
   end
 
   def inspect = "HAMT[#{map { |k, v| "#{k.inspect}=>#{v.inspect}" }.join(', ')}]"

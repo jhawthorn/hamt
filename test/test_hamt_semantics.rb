@@ -44,7 +44,7 @@ class TestHAMTSemantics < Minitest::Test
 
         assert_equal model.size, hamt.size
         probe = keys.sample(random: rng)
-        assert_equal model.fetch(probe, :absent), hamt.get(probe, :absent)
+        assert_equal model.fetch(probe, :absent), hamt.fetch(probe, :absent)
       end
 
       assert_matches(model, hamt)
@@ -185,7 +185,7 @@ class TestHAMTSemantics < Minitest::Test
     h = HAMT.new.set(:a, nil)
     assert_nil h[:a]
     assert h.key?(:a)                 # present even though value is nil
-    assert_nil h.get(:a, :def)        # stored nil, not the default
+    assert_nil h.fetch(:a, :def)        # stored nil, not the default
     assert_nil h.fetch(:a)            # fetch returns the stored nil
     assert_equal 1, h.size
     h = h.delete(:a)
@@ -197,7 +197,7 @@ class TestHAMTSemantics < Minitest::Test
     h = HAMT.new.set(:a, false)
     assert_equal false, h[:a]
     assert h.key?(:a)
-    assert_equal false, h.get(:a, :def) # false, not the default
+    assert_equal false, h.fetch(:a, :def) # false, not the default
     assert_equal false, h.fetch(:a)
   end
 
@@ -300,7 +300,7 @@ class TestHAMTSemantics < Minitest::Test
     assert h.empty?
     assert_equal 0, h.size
     assert_nil h[:x]
-    assert_equal :d, h.get(:x, :d)
+    assert_equal :d, h.fetch(:x, :d)
     refute h.key?(:x)
     assert_equal({}, h.to_h)
     assert_equal [], h.keys
