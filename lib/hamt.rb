@@ -50,7 +50,7 @@ class HAMT
       return default if (bitmap & bit).zero?
       i = 2 * index(bit)
       k = array[i]
-      if k.equal?(SUBNODE)
+      if SUBNODE.equal?(k)
         array[i + 1].get(key, hash, shift + BITS, default)
       elsif k.eql?(key)
         array[i + 1]
@@ -65,7 +65,7 @@ class HAMT
       if (bitmap & bit).zero?
         result.count += 1
         Node.new(bitmap | bit, insert2(array, i, key, value))
-      elsif (k = array[i]).equal?(SUBNODE)
+      elsif SUBNODE.equal?(k = array[i])
         child = array[i + 1]
         new_child = child.put(key, hash, shift + BITS, value, result)
         new_child.equal?(child) ? self : Node.new(bitmap, store1(array, i + 1, new_child))
@@ -93,7 +93,7 @@ class HAMT
       return self if (bitmap & bit).zero?
       i = 2 * index(bit)
       k = array[i]
-      if k.equal?(SUBNODE)
+      if SUBNODE.equal?(k)
         child = array[i + 1]
         new_child = child.delete(key, hash, shift + BITS)
         return self if new_child.equal?(child)
@@ -116,7 +116,7 @@ class HAMT
       n = array.size
       while i < n
         k = array[i]
-        if k.equal?(SUBNODE)
+        if SUBNODE.equal?(k)
           array[i + 1].each(&block)
         else
           block.call([k, array[i + 1]])
