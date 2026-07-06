@@ -26,15 +26,6 @@ class HAMT
   SUBNODE = Object.new.freeze
   private_constant :SUBNODE
 
-  def self.popcount(int)
-    n = 0
-    while int != 0
-      int &= int - 1
-      n += 1
-    end
-    n
-  end
-
   # array packs two cells per filled slot: [key, value] or [SUBNODE, child].
   class Node
     attr_reader :bitmap, :array
@@ -125,7 +116,16 @@ class HAMT
       end
     end
 
-    private def index(bit) = HAMT.popcount(bitmap & (bit - 1))
+    private def index(bit) = popcount(bitmap & (bit - 1))
+
+    private def popcount(int)
+      n = 0
+      while int != 0
+        int &= int - 1
+        n += 1
+      end
+      n
+    end
 
     # [*a] beats Array#dup here: dup pays for rb_obj_dup_setup, splat is a
     # raw copy (see bench/array_copy.rb).
